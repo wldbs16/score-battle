@@ -1,16 +1,16 @@
 import streamlit as st
 from datetime import date, datetime
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 import json
 
 # 페이지 기본 설정
 st.set_page_config(page_title="🤫 실시간 성적 배틀 (구글 로그인)", page_icon="🏆", layout="centered")
 
 # -------------------------------------------------------------------------
-# 🌍 데이터베이스 및 구글 로그인 세션 확인
+# 🌍 내장 기능으로 데이터베이스 및 구글 로그인 세션 확인
 # -------------------------------------------------------------------------
-conn = st.connection("gsheets", type=GSheetsConnection)
+# 외부 라이브러리 없이 스트림릿 내장 sheets 기능 사용
+conn = st.connection("sheets", type="experimental_ojbect_store") 
 
 def load_db():
     try:
@@ -35,31 +35,25 @@ if not st.user.is_logged_in:
     st.title("🏆 성적 서바이벌 온라인 배틀룸")
     st.subheader("🔒 이 앱은 안전한 구글 로그인이 필요합니다.")
     st.write("친구들과 공정하고 확실한 성적 배틀을 위해 구글 계정으로 인증해 주세요.")
-    
-    # 스트림릿 공식 구글 로그인 버튼 작동
     st.button("🔑 구글 계정으로 로그인하기", on_click=st.login, use_container_width=True)
-    st.stop() # 로그인이 안 되어 있으면 아래 코드를 실행하지 않고 멈춤
+    st.stop()
 
-# 로그인에 성공했다면 사용자의 구글 프로필 정보를 가져옴
 user_email = st.user.email
 user_name = st.user.name
 
-# 기기 세션에 내 구글 정보 연동
 if "my_room" not in st.session_state:
     st.session_state.my_room = None
 
-# 상단 사이드바에 로그인 정보 표시 및 로그아웃 버튼 제공
 with st.sidebar:
     st.markdown(f"### 👤 로그인 사용자\n**{user_name}** ({user_email})")
     if st.button("로그아웃"):
         st.logout()
 
 # -------------------------------------------------------------------------
-# 💡 [자동 이어하기 스캔] 이메일 주소로 과거에 참여하던 방이 있는지 체크
+# 💡 [자동 이어하기 스캔]
 # -------------------------------------------------------------------------
 if st.session_state.my_room is None:
     for r in global_db:
-        # 구글 시트에 기록된 이메일 리스트 역직렬화
         emails = json.loads(r.get("player_emails", "[]"))
         if user_email in emails:
             st.session_state.my_room = str(r["room_id"])
@@ -67,7 +61,7 @@ if st.session_state.my_room is None:
             st.rerun()
 
 # -------------------------------------------------------------------------
-# [단계 1] 로그인 완료 후 방 입장/생성 선택 (참여 중인 방이 없을 때)
+# [단계 1] 로그인 완료 후 방 입장/생성 선택
 # -------------------------------------------------------------------------
 if st.session_state.my_room is None:
     st.title("🏆 성적 서바이벌 멀티플레이 룸")
@@ -105,8 +99,8 @@ if st.session_state.my_room is None:
                         "subjects": json.dumps(sub_list, ensure_ascii=False),
                         "penalty": penalty_input,
                         "d_day": target_date.strftime("%Y-%m-%d"),
-                        "players": json.dumps([user_name], ensure_ascii=False), # 구글 닉네임 저장
-                        "player_emails": json.dumps([user_email], ensure_ascii=False), # 구글 이메일 저장
+                        "players": json.dumps([user_name], ensure_ascii=False),
+                        "player_emails": json.dumps([user_email], ensure_ascii=False),
                         "scores": json.dumps({}, ensure_ascii=False)
                     }
                     global_db.append(new_room)
@@ -134,7 +128,6 @@ if st.session_state.my_room is None:
                 emails = json.loads(target_room.get("player_emails", "[]"))
                 max_players = int(target_room["max_players"])
                 
-                # 중복 참가 방지 및 인원 체크
                 if user_email in emails:
                     st.session_state.my_room = str(room_id)
                     st.rerun()
@@ -176,7 +169,6 @@ else:
         penalty = room_data["penalty"]
         max_players = int(room_data["max_players"])
         
-        # 디데이 로직
         d_day_date = datetime.strptime(room_data["d_day"], "%Y-%m-%d").date()
         today = date.today()
         days_left = (d_day_date - today).days
@@ -198,7 +190,6 @@ else:
         else:
             st.success("✅ 인원이 모두 모였습니다! 점수를 입력하세요.")
             
-            # 구글 이메일을 고유 키로 사용하여 성적 제출 여부 판단
             if user_email in scores:
                 st.info("🔒 당신은 이미 성적을 최종 제출했습니다. 다른 사람의 마감을 기다리세요.")
                 my_scores = scores[user_email]
@@ -226,7 +217,6 @@ else:
                     st.balloons()
                     results = {}
                     
-                    # 이메일 기반 저장 구조를 이름 매칭 결과로 파싱
                     emails_list = json.loads(room_data["player_emails"])
                     for idx, email in enumerate(emails_list):
                         p_name = players[idx]
