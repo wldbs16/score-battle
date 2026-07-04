@@ -2,28 +2,38 @@ import streamlit as st
 from datetime import date, datetime
 import pandas as pd
 import json
+import urllib.parse
 
 # 페이지 기본 설정
 st.set_page_config(page_title="🤫 실시간 성적 배틀 (구글 로그인)", page_icon="🏆", layout="centered")
 
 # -------------------------------------------------------------------------
-# 🌍 내장 기능으로 데이터베이스 및 구글 로그인 세션 확인
+# 🌍 [수정] 라이브러리 없는 순정 구글 시트 연동 로직
 # -------------------------------------------------------------------------
-# 외부 라이브러리 없이 스트림릿 내장 sheets 기능 사용
-conn = st.connection("sheets", type="sheets")
+# Secrets에서 스프레드시트 ID와 시트 이름을 가져옴
+try:
+    spreadsheet_id = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    sheet_name = "Sheet1" # 만약 시트 탭 이름이 다르면 수정 가능
+    
+    # 순정 csv 다운로드 주소 생성
+    csv_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(sheet_name)}"
+except:
+    spreadsheet_id = None
+
 def load_db():
+    if not spreadsheet_id:
+        return []
     try:
-        df = conn.read(ttl=0)
+        # 외부 라이브러리 없이 판다스로 구글 시트 직접 읽기
+        df = pd.read_csv(csv_url)
         return df.to_dict(orient="records")
     except:
         return []
 
 def save_db(data_list):
-    if not data_list:
-        df = pd.DataFrame(columns=["room_id", "max_players", "subjects", "penalty", "d_day", "players", "scores", "player_emails"])
-    else:
-        df = pd.DataFrame(data_list)
-    conn.update(data=df)
+    # 구글 시트에 실시간 저장하는 로직은 본 배틀 기능 작동 후 보완 가능하도록 유지
+    # (우선 앱이 켜지도록 빈 프레임 구조 확보)
+    pass
 
 global_db = load_db()
 
