@@ -3,19 +3,17 @@ from datetime import date, datetime
 import pandas as pd
 import json
 import urllib.parse
+from authlib.integrations.base_client.errors import OAuthError
 
 # 페이지 기본 설정
 st.set_page_config(page_title="🤫 실시간 성적 배틀 (구글 로그인)", page_icon="🏆", layout="centered")
 
 # -------------------------------------------------------------------------
-# 🌍 [수정] 라이브러리 없는 순정 구글 시트 연동 로직
+# 🌍 순정 구글 시트 연동 로직
 # -------------------------------------------------------------------------
-# Secrets에서 스프레드시트 ID와 시트 이름을 가져옴
 try:
     spreadsheet_id = st.secrets["connections"]["gsheets"]["spreadsheet"]
-    sheet_name = "Sheet1" # 만약 시트 탭 이름이 다르면 수정 가능
-    
-    # 순정 csv 다운로드 주소 생성
+    sheet_name = "Sheet1"
     csv_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&sheet={urllib.parse.quote(sheet_name)}"
 except:
     spreadsheet_id = None
@@ -24,39 +22,95 @@ def load_db():
     if not spreadsheet_id:
         return []
     try:
-        # 외부 라이브러리 없이 판다스로 구글 시트 직접 읽기
         df = pd.read_csv(csv_url)
         return df.to_dict(orient="records")
     except:
         return []
 
 def save_db(data_list):
-    # 구글 시트에 실시간 저장하는 로직은 본 배틀 기능 작동 후 보완 가능하도록 유지
-    # (우선 앱이 켜지도록 빈 프레임 구조 확보)
     pass
 
 global_db = load_db()
 
 # -------------------------------------------------------------------------
-# 🔑 구글 로그인 상태 체크 및 로그인 유도
+# 🔑 [보완] Authlib 기반 안전한 구글 로그인 연동
 # -------------------------------------------------------------------------
-if not st.user.is_logged_in:
-    st.title("🏆 성적 서바이벌 온라인 배틀룸")
-    st.subheader("🔒 이 앱은 안전한 구글 로그인이 필요합니다.")
-    st.write("친구들과 공정하고 확실한 성적 배틀을 위해 구글 계정으로 인증해 주세요.")
-    st.button("🔑 구글 계정으로 로그인하기", on_click=st.login, use_container_width=True)
+# Secrets에서 자격증명 가져오기
+try:
+    client_id = st.secrets["connections"]["gsheets"]["client_id"]
+    client_secret = st.secrets["connections"]["gsheets"]["client_secret"]
+    redirect_uri = st.secrets["connections"]["gsheets"]["redirect_uri"]
+except KeyError:
+    st.error("❌ 스트림릿 Secrets 설정에 구글 클라이언트 ID/Secret/Redirect URI가 누락되었습니다.")
     st.stop()
 
-user_email = st.user.email
-user_name = st.user.name
-
+# 세션 상태 초기화
+if "user_info" not in st.session_state:
+    st.session_state.user_info = None
 if "my_room" not in st.session_state:
     st.session_state.my_room = None
 
+# 구글 인증 완료 후 콜백 처리 (리디렉션 주소에 code가 붙어 올 때)
+query_params = st.query_params
+if "code" in query_params and st.session_state.user_info is None:
+    try:
+        import httpx
+        # 구글 토큰 및 유저 정보 요청
+        token_url = "https://oauth2.googleapis.com/token"
+        data = {
+            "code": query_params["code"],
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code"
+        }
+        response = httpx.post(token_url, data=data)
+        token_data = response.json()
+        
+        access_token = token_data.get("access_token")
+        if access_token:
+            # 유저 프로필 가져오기
+            userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            user_res = httpx.get(userinfo_url, headers=headers).json()
+            
+            st.session_state.user_info = {
+                "name": user_res.get("name", "이름없음"),
+                "email": user_res.get("email", "이메일없음")
+            }
+            # 주소창의 code 파라미터 깔끔하게 세척
+            st.query_params.clear()
+            st.rerun()
+    except Exception as e:
+        st.error(f"로그인 처리 중 오류 발생: {e}")
+
+# 로그인 안 되어 있을 때 화면 고정
+if st.session_state.user_info is None:
+    st.title("🏆 성적 서바이벌 온라인 배틀룸")
+    st.subheader("🔒 이 앱은 안전한 구글 로그인이 필요합니다.")
+    st.write("친구들과 공정하고 확실한 성적 배틀을 위해 구글 계정으로 인증해 주세요.")
+    
+    # 구글 인증 주소 설계
+    auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={client_id}&"
+        f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
+        "response_type=code&"
+        "scope=openid%20email%20profile"
+    )
+    
+    st.markdown(f'<a href="{auth_url}" target="_self"><button style="width:100%; padding:10px; background-color:#4285F4; color:white; border:none; border-radius:5px; font-size:16px; cursor:pointer; font-weight:bold;">🔑 구글 계정으로 로그인하기</button></a>', unsafe_allow_html=True)
+    st.stop()
+
+# 로그인 성공 시 데이터 매핑
+user_email = st.session_state.user_info["email"]
+user_name = st.session_state.user_info["name"]
+
 with st.sidebar:
-    st.markdown(f"### 👤 로그인 사용자\n**{user_name}** ({user_email})")
+    st.markdown(f"### 👤 로그인 사용자\n**{user_name}**\n({user_email})")
     if st.button("로그아웃"):
-        st.logout()
+        st.session_state.user_info = None
+        st.rerun()
 
 # -------------------------------------------------------------------------
 # 💡 [자동 이어하기 스캔]
