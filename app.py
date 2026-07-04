@@ -10,8 +10,7 @@ st.set_page_config(page_title="🤫 실시간 성적 배틀 (구글 로그인)",
 # 🌍 내장 기능으로 데이터베이스 및 구글 로그인 세션 확인
 # -------------------------------------------------------------------------
 # 외부 라이브러리 없이 스트림릿 내장 sheets 기능 사용
-conn = st.connection("sheets", type="experimental_ojbect_store") 
-
+conn = st.connection("sheets", type="sheets")
 def load_db():
     try:
         df = conn.read(ttl=0)
